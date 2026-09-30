@@ -44,6 +44,14 @@ the message broker. The reference blocks are:
   topology used to consume/publish settings updates (`queue`, `exchange`,
   `routingKey`). A dead-letter topology is provisioned automatically as
   `<exchange>.dlx` / `<queue>.dlq` / `<routingKey>.dead`.
+* **`deletion`** (optional) - where user deletions arrive (`exchange`,
+  `routingKey`, `queue`) and how the homeserver's SSO mapping named accounts
+  (`localpartFrom`: `uid` for the message's `userId`, `email` for the local
+  part of its `internalEmail`). The bridge deactivates and erases each deleted
+  account, so it refuses to start unless its bot is a homeserver admin and
+  `localpartFrom` is one of the two values. A message that names
+  no account, or a Synapse failure, ends in the dead-letter queue after the
+  retries.
 
 ## Passing the Files to the Service
 

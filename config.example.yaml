@@ -43,3 +43,14 @@ rabbitmq:
   routingKey: 'user.settings.updated'
   # Dead-letter topology is provisioned automatically by the client as
   # '<exchange>.dlx' / '<queue>.dlq' / '<routingKey>.dead'.
+
+# Account erasure on user deletion (optional, off when omitted)
+# Deactivates and erases the Matrix account of each deleted user. Needs the
+# bridge bot to be a homeserver admin.
+# deletion:
+#   exchange: 'auth'
+#   routingKey: 'user.deleted'
+#   queue: 'chat.user.deleted.queue'
+#   # What the homeserver's SSO mapping named accounts after: 'uid' (the
+#   # message's userId) or 'email' (the local part of its internalEmail)
+#   localpartFrom: 'uid'

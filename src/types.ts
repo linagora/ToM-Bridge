@@ -108,6 +108,18 @@ export interface SynapseConfig {
 }
 
 /**
+ * Where the bridge consumes user deletions, and how the homeserver's SSO
+ * mapping named the accounts: from the directory uid (`userId`) or from the
+ * local part of the email (`internalEmail`).
+ */
+export interface DeletionConfig {
+  readonly exchange: string;
+  readonly queue: string;
+  readonly routingKey: string;
+  readonly localpartFrom: "uid" | "email";
+}
+
+/**
  * Complete configuration for the common-settings bridge.
  */
 export interface BridgeConfig {
@@ -117,6 +129,8 @@ export interface BridgeConfig {
   readonly synapse: SynapseConfig;
   readonly rabbitmq: AmqpConfig & BridgeAmqpConfig;
   readonly database: DatabaseConfig;
+  /** Account erasure on user deletion. Off when omitted. */
+  readonly deletion?: DeletionConfig;
 }
 
 /**

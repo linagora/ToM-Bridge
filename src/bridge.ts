@@ -3,6 +3,7 @@ import { Bridge, type Intent, Logger } from "matrix-appservice-bridge";
 
 import { RabbitMQClient } from "@linagora/rabbitmq-client";
 
+import { createUserDeletedHandler } from "./account-eraser";
 import { Database } from "./db";
 import {
   DEFAULT_AVATAR_FETCH_TIMEOUT_MS,
@@ -384,6 +385,34 @@ export class CommonSettingsBridge {
   }
 
   /**
+   * Deactivates the account with erasure. A repeat succeeds, and Synapse
+   * answers 404 for an account it does not know, which counts as erased.
+   */
+  async #eraseAccount(matrixId: string): Promise<void> {
+    try {
+      await this.#botIntent.matrixClient.doRequest(
+        "POST",
+        `/_synapse/admin/v1/deactivate/${encodeURIComponent(matrixId)}`,
+        null,
+        {
+          erase: true,
+        },
+      );
+    } catch (error) {
+      if (
+        (
+          error as {
+            statusCode?: number;
+          }
+        ).statusCode !== 404
+      ) {
+        throw error;
+      }
+      this.#log.warn(`Synapse does not know ${matrixId}, nothing to erase`);
+    }
+  }
+
+  /**
    * Starts the bridge service.
    * Initializes the Matrix bridge, caches bot intent and admin APIs,
    * verifies admin privileges, waits for database readiness,
@@ -417,6 +446,8 @@ export class CommonSettingsBridge {
       const isAdmin = await this.#adminApis.isSelfAdmin();
       if (isAdmin) {
         this.#log.info(`Bot ${botUserId} has admin privileges`);
+      } else if (this.#config.deletion) {
+        throw new Error(`Bot ${botUserId} must be a server admin to erase deleted accounts`);
       } else {
         this.#log.warn(`Bot ${botUserId} does NOT have admin privileges`);
         this.#log.warn("Admin API fallback will not be available");
@@ -496,6 +527,22 @@ export class CommonSettingsBridge {
           rabbitConfig.queue,
           this.#handleMessage.bind(this),
         );
+
+        const deletion = this.#config.deletion;
+        if (deletion) {
+          await this.#client.subscribe(
+            deletion.exchange,
+            deletion.routingKey,
+            deletion.queue,
+            createUserDeletedHandler(
+              this.#eraseAccount.bind(this),
+              this.#config.domain,
+              deletion.localpartFrom,
+              this.#log,
+            ),
+          );
+          this.#log.info(`Erasing accounts on ${deletion.exchange} / ${deletion.routingKey}`);
+        }
       } catch (subscribeError) {
         // Roll the connection back so the lib's auto-reconnect loop doesn't
         // keep a zombie session open after start() rejects.

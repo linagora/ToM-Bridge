@@ -300,6 +300,99 @@ describe("CommonSettingsBridge", () => {
       expect(mockClient.subscribe).toHaveBeenCalledWith("test-exchange", "#", "test-queue", expect.any(Function));
     });
 
+    it("should not subscribe to deletions when deletion is not configured", async () => {
+      await bridge.start();
+
+      expect(mockClient.subscribe).toHaveBeenCalledTimes(1);
+    });
+
+    describe("with deletion configured", () => {
+      const deletion = {
+        exchange: "auth",
+        routingKey: "user.deleted",
+        queue: "chat.user.deleted.queue",
+        localpartFrom: "uid",
+      } as const;
+
+      beforeEach(() => {
+        mockIntent.matrixClient.doRequest = mock().mockResolvedValue({});
+      });
+
+      const startWithDeletion = async (): Promise<(message: Record<string, unknown>) => Promise<void>> => {
+        await new CommonSettingsBridge({
+          ...mockConfig,
+          deletion,
+        }).start();
+        const call = mockClient.subscribe.mock.calls.find(([exchange]) => exchange === "auth");
+        return call?.[3];
+      };
+
+      it("subscribes to the deletion binding", async () => {
+        expect(await startWithDeletion()).toBeInstanceOf(Function);
+        expect(mockClient.subscribe).toHaveBeenCalledWith(
+          "auth",
+          "user.deleted",
+          "chat.user.deleted.queue",
+          expect.any(Function),
+        );
+      });
+
+      it("deactivates the account with erasure", async () => {
+        const handler = await startWithDeletion();
+        await handler({
+          userId: "alice",
+        });
+
+        expect(mockIntent.matrixClient.doRequest).toHaveBeenCalledWith(
+          "POST",
+          "/_synapse/admin/v1/deactivate/%40alice%3Aexample.com",
+          null,
+          {
+            erase: true,
+          },
+        );
+      });
+
+      it("refuses to start when the bot is not a server admin", async () => {
+        mockAdminApis.isSelfAdmin.mockResolvedValueOnce(false);
+
+        await expect(
+          new CommonSettingsBridge({
+            ...mockConfig,
+            deletion,
+          }).start(),
+        ).rejects.toThrow("must be a server admin");
+      });
+
+      it("counts an account Synapse does not know as erased", async () => {
+        const handler = await startWithDeletion();
+        mockIntent.matrixClient.doRequest.mockRejectedValueOnce({
+          statusCode: 404,
+        });
+
+        await expect(
+          handler({
+            userId: "alice",
+          }),
+        ).resolves.toBeUndefined();
+      });
+
+      it("fails on any other Synapse error, so the message is retried", async () => {
+        const handler = await startWithDeletion();
+        mockIntent.matrixClient.doRequest.mockRejectedValueOnce({
+          statusCode: 500,
+        });
+
+        await expect(
+          handler({
+            userId: "alice",
+          }),
+        ).rejects.toEqual({
+          statusCode: 500,
+        });
+      });
+    });
+
     it("should close the RabbitMQ client if subscribe() fails after init() succeeded", async () => {
       mockClient.subscribe.mockRejectedValueOnce(new Error("PRECONDITION_FAILED"));
 
