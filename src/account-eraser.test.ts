@@ -6,6 +6,7 @@ import { createUserDeletedHandler, toSynapseLocalpart } from "./account-eraser";
 
 const log = {
   info: mock(),
+  warn: mock(),
 } as unknown as Logger;
 
 describe("toSynapseLocalpart", () => {
@@ -84,6 +85,21 @@ describe("createUserDeletedHandler", () => {
     const eraseAccount = mock(async () => {});
 
     await expect(createUserDeletedHandler(eraseAccount, "example.com", localpartFrom, log)(message)).rejects.toThrow();
+    expect(eraseAccount).not.toHaveBeenCalled();
+  });
+
+  it("skips a Matrix ID longer than Synapse allows, since no such account exists", async () => {
+    const eraseAccount = mock(async () => {});
+
+    await createUserDeletedHandler(
+      eraseAccount,
+      "d".repeat(219),
+      "email",
+      log,
+    )({
+      internalEmail: `${"a".repeat(35)}@acme.example`,
+    });
+
     expect(eraseAccount).not.toHaveBeenCalled();
   });
 

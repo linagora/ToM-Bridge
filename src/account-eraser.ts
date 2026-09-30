@@ -5,7 +5,11 @@ import type { DeletionConfig } from "./types";
 /** Deactivates and erases one Matrix account. */
 export type EraseAccount = (matrixId: string) => Promise<void>;
 
+// Synapse's MXID_LOCALPART_ALLOWED_CHARACTERS minus "=", which its mapping escapes
 const MXID_LOCALPART_CHARACTER = /^[a-z0-9._/+-]$/;
+
+// Synapse refuses to register a longer user ID, so no such account exists
+const MAX_USERID_LENGTH = 255;
 
 /**
  * The localpart Synapse gives an SSO user whose login is `username`, following
@@ -63,6 +67,10 @@ export function createUserDeletedHandler(
 
   return async (message: Record<string, unknown>): Promise<void> => {
     const matrixId = `@${toSynapseLocalpart(loginOf(message, localpartFrom))}:${domain}`;
+    if (matrixId.length > MAX_USERID_LENGTH) {
+      log.warn(`${matrixId} is longer than a Matrix user ID can be, so there is no account to erase`);
+      return;
+    }
     await eraseAccount(matrixId);
     log.info(`Erased the Matrix account ${matrixId}`);
   };
