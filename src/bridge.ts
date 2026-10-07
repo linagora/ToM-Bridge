@@ -11,7 +11,16 @@ import {
   type MatrixApis,
   MatrixProfileUpdater,
 } from "./matrix-profile-updater";
+import { MatrixSpaces } from "./matrix-spaces";
 import { SettingsRepository } from "./settings-repository";
+import {
+  createSpaceEventHandler,
+  type KnownSpace,
+  purgeDeletedSpaces,
+  requestFirstSync,
+  type SpaceClock,
+  type SpaceRegistry,
+} from "./space-provisioner";
 import {
   type BridgeConfig,
   type CommonSettingsMessage,
@@ -99,6 +108,8 @@ export function formatTimestamp(timestamp: number): string {
   return new Date(timestamp).toISOString();
 }
 
+const PURGE_INTERVAL_MS = 60 * 60 * 1000;
+
 Logger.configure({
   console: (process.env.LOG_LEVEL as "info" | "debug" | "warn" | "error" | "trace" | "off" | undefined) || "info",
 });
@@ -120,6 +131,7 @@ export class CommonSettingsBridge {
   #settingsRepository!: SettingsRepository;
   #profileUpdater!: MatrixProfileUpdater;
   #isDatabaseAvailable: boolean = false;
+  #purgeTimer?: ReturnType<typeof setInterval>;
 
   /**
    * Creates a new CommonSettingsBridge instance.
@@ -161,6 +173,9 @@ export class CommonSettingsBridge {
     const tables: Record<UserSettingsTableName, string> = {
       usersettings:
         "matrix_id varchar(255) PRIMARY KEY, settings jsonb, version int DEFAULT 1, timestamp bigint DEFAULT 0, request_id varchar(255) DEFAULT ''",
+      spaceclock: "clock_key varchar(255) PRIMARY KEY, timestamp bigint",
+      spaces:
+        "space_id varchar(255) PRIMARY KEY, organization_id varchar(255), room_id varchar(255), timestamp bigint, delete_at bigint DEFAULT 0",
     };
 
     this.#db = new Database<UserSettingsTableName>(dbConfig, dbLogger, tables);
@@ -412,6 +427,157 @@ export class CommonSettingsBridge {
     }
   }
 
+  /** Without the database, like settings, space events apply without the ordering check. */
+  #createSpaceClock(): SpaceClock {
+    return {
+      latest: async (key) => {
+        if (!this.#isDatabaseAvailable) return null;
+        try {
+          const rows = await this.#db.get(
+            "spaceclock",
+            [
+              "timestamp",
+            ],
+            {
+              clock_key: key,
+            },
+          );
+          return rows.length > 0 ? Number(rows[0]!.timestamp) : null;
+        } catch (error) {
+          this.#log.error(
+            `Database error while reading ${key}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          this.#isDatabaseAvailable = false;
+          this.#log.warn("DATABASE ERROR - Switching to degraded mode");
+          return null;
+        }
+      },
+      record: async (key, timestamp) => {
+        if (!this.#isDatabaseAvailable) return;
+        // The change is already on the homeserver, so a failed write only loses the ordering check for this key
+        try {
+          const updated = await this.#db.update(
+            "spaceclock",
+            {
+              timestamp,
+            },
+            "clock_key",
+            key,
+          );
+          if (updated.length === 0) {
+            await this.#db.insert("spaceclock", {
+              clock_key: key,
+              timestamp,
+            });
+          }
+        } catch (error) {
+          this.#log.warn(`Could not record ${key}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      },
+    };
+  }
+
+  /**
+   * Without the database, the bridge cannot keep a deletion for 30 days or
+   * tell which spaces a sync left out, so those events fail and are retried.
+   * The nightly sync records the spaces provisioned in the meantime.
+   */
+  #createSpaceRegistry(): SpaceRegistry {
+    const fields = [
+      "space_id",
+      "organization_id",
+      "room_id",
+      "timestamp",
+      "delete_at",
+    ];
+    const toSpace = (row: Record<string, unknown>): KnownSpace => ({
+      spaceId: String(row.space_id),
+      organizationId: String(row.organization_id),
+      roomId: row.room_id ? String(row.room_id) : null,
+      timestamp: Number(row.timestamp),
+    });
+    const rowOf = (space: KnownSpace): Record<string, string | number> => ({
+      organization_id: space.organizationId,
+      room_id: space.roomId ?? "",
+      timestamp: space.timestamp,
+    });
+    const requireDatabase = (): void => {
+      if (!this.#isDatabaseAvailable) {
+        throw new Error("the database is unavailable");
+      }
+    };
+    const upsert = async (space: KnownSpace, values: Record<string, string | number>): Promise<void> => {
+      const updated = await this.#db.update("spaces", values, "space_id", space.spaceId);
+      if (updated.length === 0) {
+        await this.#db.insert("spaces", {
+          space_id: space.spaceId,
+          delete_at: 0,
+          ...values,
+        });
+      }
+    };
+    return {
+      remember: async (space) => {
+        if (!this.#isDatabaseAvailable) return;
+        try {
+          await upsert(space, rowOf(space));
+        } catch (error) {
+          this.#log.warn(
+            `Could not record space ${space.spaceId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      },
+      deletionOf: async (spaceId) => {
+        if (!this.#isDatabaseAvailable) return null;
+        const rows = await this.#db.get(
+          "spaces",
+          [
+            "delete_at",
+          ],
+          {
+            space_id: spaceId,
+          },
+        );
+        const deleteAt = Number(rows[0]?.delete_at ?? 0);
+        return deleteAt > 0 ? deleteAt : null;
+      },
+      scheduleDeletion: async (space, at) => {
+        requireDatabase();
+        await upsert(space, {
+          ...rowOf(space),
+          delete_at: at,
+        });
+      },
+      spacesOf: async (organizationId) => {
+        requireDatabase();
+        const rows = await this.#db.get("spaces", fields, {
+          organization_id: organizationId,
+        });
+        return rows.filter((row) => Number(row.delete_at) === 0).map(toSpace);
+      },
+      dueBy: async (time) => {
+        if (!this.#isDatabaseAvailable) return [];
+        const rows = await this.#db.getHigherThan("spaces", fields, {
+          delete_at: 0,
+        });
+        return rows.filter((row) => Number(row.delete_at) <= time).map(toSpace);
+      },
+      forget: async (spaceId) => {
+        requireDatabase();
+        await this.#db.deleteEqual("spaces", "space_id", spaceId);
+      },
+      hasSpaces: async (organizationId) => {
+        if (!this.#isDatabaseAvailable) return null;
+        const rows = organizationId
+          ? await this.#db.get("spaces", fields, {
+              organization_id: organizationId,
+            })
+          : await this.#db.getAll("spaces", fields);
+        return rows.length > 0;
+      },
+    };
+  }
+
   /**
    * Starts the bridge service.
    * Initializes the Matrix bridge, caches bot intent and admin APIs,
@@ -448,6 +614,8 @@ export class CommonSettingsBridge {
         this.#log.info(`Bot ${botUserId} has admin privileges`);
       } else if (this.#config.deletion) {
         throw new Error(`Bot ${botUserId} must be a server admin to erase deleted accounts`);
+      } else if (this.#config.spaces) {
+        throw new Error(`Bot ${botUserId} must be a server admin to add space members`);
       } else {
         this.#log.warn(`Bot ${botUserId} does NOT have admin privileges`);
         this.#log.warn("Admin API fallback will not be available");
@@ -543,6 +711,64 @@ export class CommonSettingsBridge {
           );
           this.#log.info(`Erasing accounts on ${deletion.exchange} / ${deletion.routingKey}`);
         }
+
+        const spaces = this.#config.spaces;
+        if (spaces) {
+          const matrix = new MatrixSpaces(this.#botIntent.matrixClient, botUserId, this.#config.domain);
+          const registry = this.#createSpaceRegistry();
+          await this.#client.subscribe(
+            spaces.exchange,
+            spaces.routingKey,
+            spaces.queue,
+            createSpaceEventHandler({
+              matrix,
+              clock: this.#createSpaceClock(),
+              registry,
+              publish: (type, event) =>
+                this.#client.publish(spaces.activityExchange, type, event, {
+                  messageId: event.id as string,
+                }),
+              domain: this.#config.domain,
+              config: spaces,
+              log: this.#log,
+            }),
+            // One pod, one event at a time: power levels are read, changed and written back whole
+            {
+              queueArguments: {
+                "x-single-active-consumer": true,
+              },
+              concurrency: 1,
+            },
+          );
+          this.#log.info(`Provisioning Matrix spaces from ${spaces.exchange} / ${spaces.routingKey}`);
+
+          const purge = (): void => {
+            purgeDeletedSpaces({
+              matrix,
+              registry,
+              log: this.#log,
+            }).catch((error) => {
+              this.#log.warn(
+                `Could not list the spaces to delete: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            });
+          };
+          purge();
+          this.#purgeTimer = setInterval(purge, PURGE_INTERVAL_MS).unref();
+
+          const { syncRequestExchange } = spaces;
+          if (syncRequestExchange) {
+            await requestFirstSync({
+              registry,
+              publish: (routingKey, message) =>
+                this.#client.publish(syncRequestExchange, routingKey, message, {
+                  messageId: crypto.randomUUID(),
+                }),
+              organizationId: spaces.organizationId,
+              log: this.#log,
+            });
+          }
+        }
       } catch (subscribeError) {
         // Roll the connection back so the lib's auto-reconnect loop doesn't
         // keep a zombie session open after start() rejects.
@@ -586,6 +812,7 @@ export class CommonSettingsBridge {
     // Each resource closes in its own try block so a failure on one does not
     // skip the others (the lib's close() can throw on drain timeout).
     let firstError: unknown;
+    clearInterval(this.#purgeTimer);
 
     if (this.#client) {
       this.#log.info("Closing RabbitMQ client...");

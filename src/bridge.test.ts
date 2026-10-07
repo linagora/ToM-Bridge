@@ -33,12 +33,15 @@ describe("CommonSettingsBridge", () => {
     get: Mock<AnyFn>;
     insert: Mock<AnyFn>;
     update: Mock<AnyFn>;
+    getHigherThan: Mock<AnyFn>;
+    deleteEqual: Mock<AnyFn>;
     close: Mock<AnyFn>;
     ensureColumns: Mock<AnyFn>;
   };
   let mockClient: {
     init: Mock<AnyFn>;
     subscribe: Mock<AnyFn>;
+    publish: Mock<AnyFn>;
     close: Mock<AnyFn>;
   };
   let spyGetUserSettings: Mock<AnyFn>;
@@ -82,6 +85,8 @@ describe("CommonSettingsBridge", () => {
       get: mock(),
       insert: mock(),
       update: mock(),
+      getHigherThan: mock().mockResolvedValue([]),
+      deleteEqual: mock().mockResolvedValue(undefined),
       close: mock(),
       ensureColumns: mock().mockResolvedValue(undefined),
     } as any;
@@ -91,6 +96,7 @@ describe("CommonSettingsBridge", () => {
     mockClient = {
       init: mock().mockResolvedValue(undefined),
       subscribe: mock().mockResolvedValue(undefined),
+      publish: mock().mockResolvedValue(undefined),
       close: mock().mockResolvedValue(undefined),
     } as any;
     MockRabbitMQClient.mockImplementation(() => mockClient);
@@ -390,6 +396,195 @@ describe("CommonSettingsBridge", () => {
         ).rejects.toEqual({
           statusCode: 500,
         });
+      });
+    });
+
+    describe("with spaces configured", () => {
+      const spaces = {
+        exchange: "cs.instances.out.exchange",
+        routingKey: "twake.space.#.acme",
+        queue: "chat.space.acme.queue",
+        activityExchange: "activity",
+        localpartFrom: "uid",
+      } as const;
+
+      const created = {
+        organizationId: "acme",
+        id: "3b9e2c71",
+        name: "Design Sprint",
+        members: [],
+        timestamp: "2026-10-06T09:12:44.512Z",
+      };
+
+      beforeEach(() => {
+        Object.assign(mockIntent.matrixClient, {
+          resolveRoom: mock().mockResolvedValue("!space:example.com"),
+          doRequest: mock().mockResolvedValue({}),
+          getRoomStateEvent: mock().mockResolvedValue({
+            users: {},
+          }),
+          sendStateEvent: mock().mockResolvedValue("$event"),
+          getRoomMembers: mock().mockResolvedValue([]),
+        });
+        mockDatabase.get.mockResolvedValue([]);
+        mockDatabase.update.mockResolvedValue([]);
+        mockDatabase.insert.mockResolvedValue([]);
+      });
+
+      const startWithSpaces = async (): Promise<
+        (message: Record<string, unknown>, properties: Record<string, unknown>) => Promise<void>
+      > => {
+        await new CommonSettingsBridge({
+          ...mockConfig,
+          spaces,
+        }).start();
+        const call = mockClient.subscribe.mock.calls.find(([, routingKey]) => routingKey === spaces.routingKey);
+        return call?.[3];
+      };
+
+      it("subscribes to the tenant's space events", async () => {
+        expect(await startWithSpaces()).toBeInstanceOf(Function);
+        expect(mockClient.subscribe).toHaveBeenCalledWith(
+          "cs.instances.out.exchange",
+          "twake.space.#.acme",
+          "chat.space.acme.queue",
+          expect.any(Function),
+          {
+            queueArguments: {
+              "x-single-active-consumer": true,
+            },
+            concurrency: 1,
+          },
+        );
+      });
+
+      it("announces the Matrix space on the activity exchange", async () => {
+        const handler = await startWithSpaces();
+        await handler(created, {
+          routingKey: "twake.space.created.acme",
+          headers: {},
+        });
+
+        expect(mockClient.publish).toHaveBeenCalledWith(
+          "activity",
+          "com.twake.chat.space.provisioned.v1",
+          expect.objectContaining({
+            data: {
+              space_id: "3b9e2c71",
+              resource: {
+                kind: "matrix_space",
+                id: "!space:example.com",
+              },
+            },
+          }),
+          {
+            messageId: expect.any(String),
+          },
+        );
+      });
+
+      it("records the members it applied, to ignore older events", async () => {
+        const handler = await startWithSpaces();
+        await handler(
+          {
+            ...created,
+            members: [
+              {
+                uuid: "u1",
+                username: "jdoe",
+                email: "jdoe@example.com",
+                role: "editor",
+              },
+            ],
+          },
+          {
+            routingKey: "twake.space.member.added.acme",
+            headers: {},
+          },
+        );
+
+        expect(mockDatabase.insert).toHaveBeenCalledWith("spaceclock", {
+          clock_key: "3b9e2c71/@jdoe:example.com",
+          timestamp: Date.parse(created.timestamp),
+        });
+      });
+
+      it("keeps a deleted space until its retention is over", async () => {
+        const handler = await startWithSpaces();
+        await handler(created, {
+          routingKey: "twake.space.deleted.acme",
+          headers: {},
+        });
+
+        expect(mockDatabase.insert).toHaveBeenCalledWith("spaces", {
+          space_id: "3b9e2c71",
+          organization_id: "acme",
+          room_id: "!space:example.com",
+          timestamp: Date.parse(created.timestamp),
+          delete_at: expect.any(Number),
+        });
+      });
+
+      it("purges the Matrix spaces whose retention is over", async () => {
+        mockDatabase.getHigherThan.mockResolvedValue([
+          {
+            space_id: "gone",
+            organization_id: "acme",
+            room_id: "!gone:example.com",
+            timestamp: 0,
+            delete_at: 1,
+          },
+        ]);
+
+        await startWithSpaces();
+        await Bun.sleep(0);
+
+        expect(mockIntent.matrixClient.doRequest).toHaveBeenCalledWith(
+          "DELETE",
+          "/_synapse/admin/v2/rooms/!gone%3Aexample.com",
+          null,
+          {
+            purge: true,
+          },
+        );
+        expect(mockDatabase.deleteEqual).toHaveBeenCalledWith("spaces", "space_id", "gone");
+      });
+
+      it("requests a sync of its organization once subscribed, while it knows no space", async () => {
+        await new CommonSettingsBridge({
+          ...mockConfig,
+          spaces: {
+            ...spaces,
+            syncRequestExchange: "space",
+            organizationId: "acme",
+          },
+        }).start();
+
+        expect(mockClient.publish).toHaveBeenCalledWith(
+          "space",
+          "twake.space.sync.requested",
+          {
+            organizationId: "acme",
+            timestamp: expect.any(String),
+          },
+          {
+            messageId: expect.any(String),
+          },
+        );
+        expect(mockClient.subscribe.mock.invocationCallOrder.at(-1)).toBeLessThan(
+          mockClient.publish.mock.invocationCallOrder[0]!,
+        );
+      });
+
+      it("refuses to start when the bot is not a server admin", async () => {
+        mockAdminApis.isSelfAdmin.mockResolvedValueOnce(false);
+
+        await expect(
+          new CommonSettingsBridge({
+            ...mockConfig,
+            spaces,
+          }).start(),
+        ).rejects.toThrow("must be a server admin");
       });
     });
 
