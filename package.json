@@ -1,7 +1,7 @@
 {
   "name": "@twake/tom-bridge",
   "description": "A Twake Workplace Matrix Application Service automating user management based on TWP Events",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "type": "module",
   "private": true,
   "files": [
