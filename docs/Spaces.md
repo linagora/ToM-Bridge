@@ -28,9 +28,9 @@ routing key is `twake.space.<event>`:
 
 The bridge handles both forms the same way, and reacts to these events:
 
-* `created` - creates the Matrix space, adds TwakeSpace's app service user and
-  the members, then publishes `com.twake.chat.space.provisioned.v1` with the
-  room id on the activity exchange. The event id is the same on every
+* `created` - creates the Matrix space, adds the members, then publishes
+  `com.twake.chat.space.provisioned.v1` with the room id on the activity
+  exchange. The event id is the same on every
   republish, so TwakeSpace takes the one of each nightly sync as a duplicate.
 * `updated` - renames the Matrix space.
 * `member.added`, `member.role.changed` - adds the member with the level of
@@ -88,10 +88,6 @@ their Matrix space without waiting for the night.
   A role the bridge does not know reads only, like a viewer. Adding a channel
   is `m.space.child` at 50, in the Matrix space only. The bridge does not keep
   the members of those channels in step with the space yet.
-* TwakeSpace's user (`twakeSpaceUserId`, `@twakespace:<domain>` by default) is
-  at 50. Its own app service registers that account: the bridge never creates
-  it, and until it exists, logs at error level that it could not join it. The
-  members still get the space.
 * A member Synapse refuses (an id over 255 characters, a deactivated account)
   is left out and logged at error level, and the rest of the event goes ahead.
   A failure of the homeserver itself fails the event, which is retried.
@@ -108,8 +104,8 @@ which the space's aliases rule above also covers.
   so someone removed from the space cannot come back to it. The room directory
   does not list it. A General created public by an earlier version gets the
   rule at its next `synced`.
-* The bridge adds and removes the space's members, TwakeSpace's user included,
-  in General as in the Matrix space, with the same levels.
+* The bridge adds and removes the space's members in General as in the Matrix
+  space, with the same levels.
 * A sync only removes from General the members it removes from the Matrix
   space, so someone who joined a General on their own while it was public
   stays.
