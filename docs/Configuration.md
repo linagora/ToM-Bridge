@@ -60,8 +60,7 @@ the message broker. The reference blocks are:
   `routingKey`, `queue`), where the bridge announces each space's Matrix space
   (`activityExchange`), how the homeserver's SSO mapping named accounts
   (`localpartFrom`: `uid` for the member's `username`, `email` for the local
-  part of their `email`), and TwakeSpace's app service user
-  (`twakeSpaceUserId`, `@twakespace:<domain>` by default). With
+  part of their `email`). With
   `syncRequestExchange`, the bridge requests a sync of the directory while it
   knows no space, for `organizationId` or for every organization. Spaces need
   the database: with this block, the bridge does not start without it. See

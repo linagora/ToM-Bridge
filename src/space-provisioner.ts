@@ -225,8 +225,6 @@ export function createSpaceEventHandler({
     throw new Error(`spaces.localpartFrom must be "uid" or "email", got ${JSON.stringify(config.localpartFrom)}`);
   }
 
-  const twakeSpaceUserId = config.twakeSpaceUserId ?? `@twakespace:${domain}`;
-
   /** Null for a member the SSO mapping cannot name, who is left out instead of the whole event. */
   function matrixIdOf(member: SpaceMember): string | null {
     let login: string | undefined;
@@ -347,7 +345,7 @@ export function createSpaceEventHandler({
   async function removeUnlisted(rooms: string[], spaceId: string, listed: Set<string>, timestamp: number) {
     const levels: Record<string, number | null> = {};
     for (const matrixId of await matrix.members(rooms[0]!)) {
-      if (listed.has(matrixId) || matrixId === twakeSpaceUserId) continue;
+      if (listed.has(matrixId)) continue;
       if (await forMember(spaceId, matrixId, timestamp, () => kickEverywhere(rooms, matrixId))) {
         levels[matrixId] = null;
       }
@@ -378,18 +376,6 @@ export function createSpaceEventHandler({
       await matrix.ensureGeneral(spaceId, roomId),
     ];
 
-    // TwakeSpace's app service registers its own account: created here, it would be an ordinary account in that
-    // namespace. Until it exists the join fails, and the members still get the space
-    try {
-      for (const room of rooms) {
-        await matrix.join(room, twakeSpaceUserId);
-      }
-    } catch (error) {
-      if (!isRefused(error)) {
-        throw error;
-      }
-      log.error(`${twakeSpaceUserId} cannot join the space ${spaceId}: ${(error as Error).message}`);
-    }
     const members = named(membersOf(message));
     const levels = await addMembers(rooms, spaceId, members, timestamp);
     if (whole) {
@@ -398,10 +384,7 @@ export function createSpaceEventHandler({
         await removeUnlisted(rooms, spaceId, new Set(members.map((member) => member.matrixId)), timestamp),
       );
     }
-    await setLevels(rooms, {
-      ...levels,
-      [twakeSpaceUserId]: POSTER_LEVEL,
-    });
+    await setLevels(rooms, levels);
     await registry.remember({
       spaceId: spaceId.toLowerCase(),
       organizationId,

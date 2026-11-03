@@ -69,8 +69,6 @@ rabbitmq:
 #   # What the homeserver's SSO mapping named accounts after: 'uid' (the
 #   # member's username) or 'email' (the local part of their email)
 #   localpartFrom: 'uid'
-#   # TwakeSpace's app service user (default: '@twakespace:<domain>')
-#   # twakeSpaceUserId: '@twakespace:example.com'
 #   # Where to request a sync of the directory while the bridge knows no space
 #   # (off when omitted), and for which organization (every one when omitted)
 #   # syncRequestExchange: 'space'
