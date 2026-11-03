@@ -230,25 +230,16 @@ describe("createSpaceEventHandler", () => {
       groups: [],
     });
 
-    it("creates the Matrix space and its General room, and joins TwakeSpace and the members to both", async () => {
+    it("creates the Matrix space and its General room, and joins the members to both", async () => {
       matrix.findSpace.mockResolvedValue(null);
 
       await handler()(created, properties("created"));
 
       expect(matrix.createSpace).toHaveBeenCalledWith(SPACE, "Design Sprint");
       expect(matrix.ensureGeneral).toHaveBeenCalledWith(SPACE, ROOM);
-      expect(matrix.ensureUser).not.toHaveBeenCalledWith("@twakespace:acme.example", expect.anything());
       expect(matrix.ensureUser).toHaveBeenCalledWith("@jdoe:acme.example", "John Doe");
       expect(matrix.ensureUser).toHaveBeenCalledWith("@vlee:acme.example", "vlee");
       expect(matrix.join.mock.calls).toEqual([
-        [
-          ROOM,
-          "@twakespace:acme.example",
-        ],
-        [
-          GENERAL,
-          "@twakespace:acme.example",
-        ],
         [
           ROOM,
           "@jdoe:acme.example",
@@ -268,24 +259,7 @@ describe("createSpaceEventHandler", () => {
       ]);
     });
 
-    it("still provisions the members when TwakeSpace cannot be created (exclusive namespace)", async () => {
-      matrix.ensureUser.mockImplementation((matrixId: string) =>
-        matrixId === "@twakespace:acme.example"
-          ? Promise.reject(
-              Object.assign(new Error("M_EXCLUSIVE"), {
-                errcode: "M_EXCLUSIVE",
-              }),
-            )
-          : Promise.resolve(),
-      );
-
-      await handler()(created, properties("created"));
-
-      expect(matrix.join).toHaveBeenCalledWith(ROOM, "@jdoe:acme.example");
-      expect(matrix.setPowerLevels).toHaveBeenCalled();
-    });
-
-    it("lets editors and TwakeSpace post, and viewers only read", async () => {
+    it("lets editors post, and viewers only read", async () => {
       await handler()(created, properties("created"));
 
       expect(matrix.setPowerLevels).toHaveBeenCalledWith(
@@ -293,7 +267,6 @@ describe("createSpaceEventHandler", () => {
         {
           "@jdoe:acme.example": 50,
           "@vlee:acme.example": null,
-          "@twakespace:acme.example": 50,
         },
         true,
       );
@@ -354,14 +327,6 @@ describe("createSpaceEventHandler", () => {
       expect(publish).toHaveBeenCalled();
     });
 
-    it("joins the configured TwakeSpace user", async () => {
-      await handler({
-        twakeSpaceUserId: "@feed:acme.example",
-      })(created, properties("created"));
-
-      expect(matrix.join).toHaveBeenCalledWith(ROOM, "@feed:acme.example");
-    });
-
     it("announces the Matrix space on the activity exchange", async () => {
       await handler()(created, properties("created"));
 
@@ -413,7 +378,6 @@ describe("createSpaceEventHandler", () => {
         ROOM,
         {
           "@vlee:acme.example": null,
-          "@twakespace:acme.example": 50,
         },
         true,
       ]);
@@ -627,7 +591,7 @@ describe("createSpaceEventHandler", () => {
   describe("deleted", () => {
     it("removes every member and keeps the Matrix space 30 days from the deletion", async () => {
       matrix.members.mockResolvedValue([
-        "@twakespace:acme.example",
+        "@vlee:acme.example",
         "@jdoe:acme.example",
       ]);
       const deleted = spaceEvent({});
@@ -637,7 +601,7 @@ describe("createSpaceEventHandler", () => {
       expect(matrix.kick.mock.calls).toEqual([
         [
           ROOM,
-          "@twakespace:acme.example",
+          "@vlee:acme.example",
         ],
         [
           ROOM,
@@ -764,7 +728,6 @@ describe("createSpaceEventHandler", () => {
         ROOM,
         {
           "@vlee:acme.example": null,
-          "@twakespace:acme.example": 50,
         },
         true,
       );
@@ -779,17 +742,6 @@ describe("createSpaceEventHandler", () => {
       );
 
       await expect(handler()(event, properties("synced"))).rejects.toThrow("bad gateway");
-    });
-
-    it("gives the members the space when TwakeSpace's account does not exist yet, without creating it", async () => {
-      matrix.join.mockImplementation((_room: string, matrixId: string) =>
-        matrixId === "@twakespace:acme.example" ? Promise.reject(refused) : Promise.resolve(),
-      );
-
-      await handler()(event, properties("created"));
-
-      expect(matrix.ensureUser).not.toHaveBeenCalledWith("@twakespace:acme.example", expect.anything());
-      expect(matrix.join).toHaveBeenCalledWith(ROOM, "@jdoe:acme.example");
     });
   });
 
@@ -969,7 +921,6 @@ describe("createSpaceEventHandler", () => {
 
     it("renames the Matrix space and removes who is no longer listed", async () => {
       matrix.members.mockResolvedValue([
-        "@twakespace:acme.example",
         "@jdoe:acme.example",
         "@vlee:acme.example",
       ]);
@@ -1003,7 +954,6 @@ describe("createSpaceEventHandler", () => {
           {
             "@jdoe:acme.example": 50,
             "@vlee:acme.example": null,
-            "@twakespace:acme.example": 50,
           },
           room === ROOM,
         );
