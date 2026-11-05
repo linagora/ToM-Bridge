@@ -4,6 +4,7 @@ import { AvatarFetchError, type AvatarUpload, type ISettingsPayload, SynapseAdmi
 
 /** What a failed Matrix request carries, as far as this file reads it. */
 type MatrixError = {
+  statusCode?: number;
   errcode?: string;
   message?: string;
 };
@@ -415,7 +416,9 @@ export class MatrixProfileUpdater {
     try {
       return await this.apis.getProfile(userId);
     } catch (caught) {
-      if ((caught as MatrixError | undefined)?.errcode === "M_NOT_FOUND") {
+      // Synapse answers 404 M_UNKNOWN "No row found (profiles)" for an account it does not have
+      const error = caught as MatrixError | undefined;
+      if (error?.statusCode === 404 || error?.errcode === "M_NOT_FOUND") {
         return {};
       }
       throw caught;
