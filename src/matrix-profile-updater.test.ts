@@ -711,6 +711,19 @@ describe("MatrixProfileUpdater", () => {
     expect(mockIntent.setDisplayName).toHaveBeenCalledWith("Jane Doe");
   });
 
+  it("writes the profile of a user Synapse answers 404 M_UNKNOWN for", async () => {
+    mockApis.getProfile.mockRejectedValue(
+      Object.assign(new Error("M_UNKNOWN: No row found (profiles)"), {
+        statusCode: 404,
+        errcode: "M_UNKNOWN",
+      }),
+    );
+
+    await reconciler().reconcile("@user:example.com", latest, null);
+
+    expect(mockIntent.setDisplayName).toHaveBeenCalledWith("Jane Doe");
+  });
+
   it("fails when the Matrix profile cannot be read, so the message is retried", async () => {
     mockApis.getProfile.mockRejectedValue(new Error("connect ECONNREFUSED"));
 
