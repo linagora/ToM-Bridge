@@ -23,15 +23,15 @@ are:
   `twp_bot`).
 * `namespaces.users` - regex of the user IDs the bridge may act on (e.g.
   `@.*`).
-* `namespaces.aliases` - with `spaces`, an exclusive
-  `#twake-space-.*:<domain>`, the aliases of the rooms the bridge creates for
-  spaces. Without it, Synapse refuses to create them.
+* `namespaces.aliases` - required with the `spaces` block: an exclusive
+  `#twake-space-.*:<domain>`, for the aliases of the space rooms.
 * `rate_limited` - `false` to disable rate limiting for this internal
   service.
 
 This file must be listed in Synapse's `app_service_config_files` for the
-bridge to be loaded on the next startup. With `deletion` or `spaces`, the
-`sender_localpart` user must also be a homeserver admin.
+bridge to be loaded on the next startup. When the [config file](#config-file)
+has a `deletion` or `spaces` block, the `sender_localpart` user must also be a
+homeserver admin.
 
 ## Config File
 
@@ -60,9 +60,8 @@ the message broker. The reference blocks are:
   `routingKey`, `queue`), where the bridge announces each space's Matrix space
   (`activityExchange`), how the homeserver's SSO mapping named accounts
   (`localpartFrom`: `uid` for the member's `username`, `email` for the local
-  part of their `email`), and TwakeSpace's app service user
-  (`twakeSpaceUserId`, `@twakespace:<domain>` by default). With
-  `syncRequestExchange`, the bridge requests a sync of the directory while it
+  part of their `email`). With `syncRequestExchange`, the bridge requests a
+  sync of the spaces while it
   knows no space, for `organizationId` or for every organization. Spaces need
   the database: with this block, the bridge does not start without it. See
   [Spaces](Spaces.md).
