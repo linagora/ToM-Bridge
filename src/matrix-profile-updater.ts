@@ -4,6 +4,7 @@ import { AvatarFetchError, type AvatarUpload, type ISettingsPayload, SynapseAdmi
 
 /** What a failed Matrix request carries, as far as this file reads it. */
 type MatrixError = {
+  statusCode?: number;
   errcode?: string;
   message?: string;
 };
@@ -385,7 +386,7 @@ export class MatrixProfileUpdater {
     payload: ISettingsPayload,
     lastAvatar: AvatarUpload | null,
   ): Promise<AvatarUpload | null> {
-    const profile = await this.#readProfile(userId);
+    const profile = (await this.#readProfile(userId)) ?? (await this.#createAccount(userId));
 
     if (payload.display_name && payload.display_name !== profile.displayname) {
       await this.updateDisplayName(userId, payload.display_name);
@@ -410,15 +411,45 @@ export class MatrixProfileUpdater {
     };
   }
 
-  /** The profile Matrix shows, empty for a user it does not know yet. */
-  async #readProfile(userId: string): Promise<MatrixProfile> {
+  /** The profile Matrix shows, null for a user it does not know yet. */
+  async #readProfile(userId: string): Promise<MatrixProfile | null> {
     try {
       return await this.apis.getProfile(userId);
     } catch (caught) {
-      if ((caught as MatrixError | undefined)?.errcode === "M_NOT_FOUND") {
-        return {};
+      // Synapse answers 404 M_UNKNOWN "No row found (profiles)" for an account it does not have
+      const error = caught as MatrixError | undefined;
+      if (error?.statusCode === 404 || error?.errcode === "M_NOT_FOUND") {
+        return null;
       }
       throw caught;
     }
+  }
+
+  /**
+   * Creates the account of a user the homeserver does not have yet: one that
+   * `user.created` never announced, on-prem or from before event-driven
+   * provisioning, and that never logged in to chat.
+   * @returns The profile of the new account, empty
+   */
+  async #createAccount(userId: string): Promise<MatrixProfile> {
+    if (this.retryMode === SynapseAdminRetryMode.EXCLUSIVE) {
+      await this.apis.adminUpsertUser(userId, {});
+    } else {
+      try {
+        await this.apis.getIntent(userId).ensureRegistered();
+      } catch (caught) {
+        const err = caught as MatrixError | undefined;
+        if (
+          (err?.errcode === "M_FORBIDDEN" || err?.errcode === "M_EXCLUSIVE") &&
+          this.retryMode === SynapseAdminRetryMode.FALLBACK
+        ) {
+          await this.apis.adminUpsertUser(userId, {});
+        } else {
+          throw caught;
+        }
+      }
+    }
+    this.logger.info(`Created the Matrix account of ${userId}`);
+    return {};
   }
 }
