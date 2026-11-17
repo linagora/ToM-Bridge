@@ -699,7 +699,8 @@ describe("MatrixProfileUpdater", () => {
     expect(mockIntent.setAvatarUrl).toHaveBeenCalledWith("mxc://example.com/uploaded");
   });
 
-  it("writes the profile of a user Matrix does not know yet", async () => {
+  it("creates the account of a user Matrix does not know yet, then writes its profile", async () => {
+    mockIntent.ensureRegistered = vi.fn().mockResolvedValue("registered=true");
     mockApis.getProfile.mockRejectedValue(
       Object.assign(new Error("Profile not found"), {
         errcode: "M_NOT_FOUND",
@@ -708,7 +709,80 @@ describe("MatrixProfileUpdater", () => {
 
     await reconciler().reconcile("@user:example.com", latest, null);
 
+    expect(mockIntent.ensureRegistered).toHaveBeenCalled();
     expect(mockIntent.setDisplayName).toHaveBeenCalledWith("Jane Doe");
+  });
+
+  it("creates the account of a user Synapse answers 404 M_UNKNOWN for, then writes its profile", async () => {
+    mockIntent.ensureRegistered = vi.fn().mockResolvedValue("registered=true");
+    mockApis.getProfile.mockRejectedValue(
+      Object.assign(new Error("M_UNKNOWN: No row found (profiles)"), {
+        statusCode: 404,
+        errcode: "M_UNKNOWN",
+      }),
+    );
+
+    await reconciler().reconcile("@user:example.com", latest, null);
+
+    expect(mockIntent.ensureRegistered).toHaveBeenCalled();
+    expect(mockIntent.setDisplayName).toHaveBeenCalledWith("Jane Doe");
+  });
+
+  it("creates the account through the admin API in EXCLUSIVE mode", async () => {
+    mockApis.getProfile.mockRejectedValue(
+      Object.assign(new Error("No row found"), {
+        statusCode: 404,
+      }),
+    );
+    mockApis.adminUpsertUser.mockResolvedValue(undefined);
+
+    await new MatrixProfileUpdater(mockApis, SynapseAdminRetryMode.EXCLUSIVE, mockLogger).reconcile(
+      "@user:example.com",
+      {
+        ...latest,
+        avatar: "",
+      },
+      null,
+    );
+
+    expect(mockApis.adminUpsertUser.mock.calls).toEqual([
+      [
+        "@user:example.com",
+        {},
+      ],
+      [
+        "@user:example.com",
+        {
+          displayname: "Jane Doe",
+        },
+      ],
+    ]);
+  });
+
+  it("creates the account through the admin API in FALLBACK mode when the appservice may not register it", async () => {
+    mockIntent.ensureRegistered = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Exclusive"), {
+        errcode: "M_EXCLUSIVE",
+      }),
+    );
+    mockIntent.setDisplayName.mockResolvedValue(undefined);
+    mockApis.getProfile.mockRejectedValue(
+      Object.assign(new Error("No row found"), {
+        statusCode: 404,
+      }),
+    );
+    mockApis.adminUpsertUser.mockResolvedValue(undefined);
+
+    await new MatrixProfileUpdater(mockApis, SynapseAdminRetryMode.FALLBACK, mockLogger).reconcile(
+      "@user:example.com",
+      {
+        ...latest,
+        avatar: "",
+      },
+      null,
+    );
+
+    expect(mockApis.adminUpsertUser).toHaveBeenCalledWith("@user:example.com", {});
   });
 
   it("fails when the Matrix profile cannot be read, so the message is retried", async () => {
