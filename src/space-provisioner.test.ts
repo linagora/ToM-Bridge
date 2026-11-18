@@ -533,6 +533,21 @@ describe("createSpaceEventHandler", () => {
     expect(matrix.findSpace).not.toHaveBeenCalled();
   });
 
+  it("ignores a sync request for every organization", async () => {
+    await handler()(
+      {
+        timestamp: "2026-11-18T03:45:56.790Z",
+      },
+      {
+        exchange: "space",
+        routingKey: SYNC_REQUESTED,
+        headers: {},
+      },
+    );
+
+    expect(matrix.findSpace).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       "no organization",

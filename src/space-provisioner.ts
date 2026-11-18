@@ -544,6 +544,11 @@ export function createSpaceEventHandler({
   }
 
   async function handle(message: Record<string, unknown>, routingKey: string) {
+    // ldap-rest's nightly sync asks for every organization, so it carries none
+    if (routingKey === SYNC_REQUESTED) {
+      log.debug(`Ignoring space event ${routingKey}`);
+      return;
+    }
     const organizationId = requireString(message, "organizationId");
     const timestamp = Date.parse(requireString(message, "timestamp"));
     if (Number.isNaN(timestamp)) {
