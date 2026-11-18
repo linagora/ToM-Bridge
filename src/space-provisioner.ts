@@ -544,6 +544,11 @@ export function createSpaceEventHandler({
   }
 
   async function handle(message: Record<string, unknown>, routingKey: string) {
+    // Before requiring an organizationId: a sync request for every organization carries none
+    if (routingKey === SYNC_REQUESTED || routingKey.startsWith(`${SYNC_REQUESTED}.`)) {
+      log.debug(`Ignoring space event ${routingKey}`);
+      return;
+    }
     const organizationId = requireString(message, "organizationId");
     const timestamp = Date.parse(requireString(message, "timestamp"));
     if (Number.isNaN(timestamp)) {
@@ -553,7 +558,7 @@ export function createSpaceEventHandler({
 
     if (event === "sync.completed") {
       await onSyncCompleted(message, organizationId, timestamp);
-    } else if (!event.startsWith("group.") && event !== "sync.requested") {
+    } else if (!event.startsWith("group.")) {
       await onSpaceEvent(event, message, organizationId, timestamp);
     } else {
       log.debug(`Ignoring space event ${event}`);
