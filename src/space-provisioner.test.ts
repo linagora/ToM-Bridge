@@ -548,6 +548,17 @@ describe("createSpaceEventHandler", () => {
     expect(matrix.findSpace).not.toHaveBeenCalled();
   });
 
+  it("ignores a sync request forwarded to the tenant, whatever it carries", async () => {
+    await handler()(
+      {
+        organizationId: "acme",
+      },
+      properties("sync.requested"),
+    );
+
+    expect(matrix.findSpace).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       "no organization",
