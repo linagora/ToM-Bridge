@@ -516,6 +516,28 @@ describe("createSpaceEventHandler", () => {
     expect(matrix.rename).toHaveBeenCalledWith(ROOM, "Launch");
   });
 
+  it("renames the General room after the space", async () => {
+    matrix.findGeneral.mockResolvedValue(GENERAL);
+
+    await handler()(
+      spaceEvent({
+        name: "Launch",
+      }),
+      properties("updated"),
+    );
+
+    expect(matrix.rename.mock.calls).toEqual([
+      [
+        ROOM,
+        "Launch",
+      ],
+      [
+        GENERAL,
+        "Launch - General",
+      ],
+    ]);
+  });
+
   it("ignores group events", async () => {
     await handler()(
       spaceEvent({
@@ -957,6 +979,10 @@ describe("createSpaceEventHandler", () => {
         [
           ROOM,
           "Design Sprint",
+        ],
+        [
+          GENERAL,
+          "Design Sprint - General",
         ],
       ]);
       expect(matrix.members).toHaveBeenCalledWith(ROOM);
