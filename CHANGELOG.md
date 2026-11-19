@@ -1,5 +1,21 @@
 # Changelog
 
+## [v1.2.0](https://github.com/linagora/tom-bridge/compare/v1.1.0...v1.2.0) (2026-11-19)
+
+### Features
+
+* name the default channel after its space (#63)
+([0e4c16f](https://github.com/linagora/tom-bridge/commit/0e4c16f))
+
+### Bug Fixes
+
+* ignore sync requests before validating them (#62)
+([ff1ccb6](https://github.com/linagora/tom-bridge/commit/ff1ccb6))
+* create the account of a user Synapse answers 404 for
+([65daa13](https://github.com/linagora/tom-bridge/commit/65daa13))
+* stop adding TwakeSpace's user to the Matrix spaces
+([7307dcc](https://github.com/linagora/tom-bridge/commit/7307dcc))
+
 ## [v1.1.0](https://github.com/linagora/tom-bridge/compare/v1.0.2...v1.1.0) (2026-10-30)
 
 ### Features
