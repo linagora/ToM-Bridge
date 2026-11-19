@@ -236,7 +236,7 @@ describe("createSpaceEventHandler", () => {
       await handler()(created, properties("created"));
 
       expect(matrix.createSpace).toHaveBeenCalledWith(SPACE, "Design Sprint");
-      expect(matrix.ensureGeneral).toHaveBeenCalledWith(SPACE, ROOM);
+      expect(matrix.ensureGeneral).toHaveBeenCalledWith(SPACE, ROOM, "Design Sprint");
       expect(matrix.ensureUser).toHaveBeenCalledWith("@jdoe:acme.example", "John Doe");
       expect(matrix.ensureUser).toHaveBeenCalledWith("@vlee:acme.example", "vlee");
       expect(matrix.join.mock.calls).toEqual([
@@ -514,6 +514,28 @@ describe("createSpaceEventHandler", () => {
     );
 
     expect(matrix.rename).toHaveBeenCalledWith(ROOM, "Launch");
+  });
+
+  it("renames the General room after the space", async () => {
+    matrix.findGeneral.mockResolvedValue(GENERAL);
+
+    await handler()(
+      spaceEvent({
+        name: "Launch",
+      }),
+      properties("updated"),
+    );
+
+    expect(matrix.rename.mock.calls).toEqual([
+      [
+        ROOM,
+        "Launch",
+      ],
+      [
+        GENERAL,
+        "Launch - General",
+      ],
+    ]);
   });
 
   it("ignores group events", async () => {
@@ -958,6 +980,10 @@ describe("createSpaceEventHandler", () => {
           ROOM,
           "Design Sprint",
         ],
+        [
+          GENERAL,
+          "Design Sprint - General",
+        ],
       ]);
       expect(matrix.members).toHaveBeenCalledWith(ROOM);
       expect(matrix.members).not.toHaveBeenCalledWith(GENERAL);
@@ -1102,7 +1128,7 @@ describe("createSpaceEventHandler", () => {
         properties("synced"),
       );
 
-      expect(matrix.ensureGeneral).toHaveBeenCalledWith(SPACE, ROOM);
+      expect(matrix.ensureGeneral).toHaveBeenCalledWith(SPACE, ROOM, "Design Sprint");
       expect(matrix.join).toHaveBeenCalledWith(ROOM, "@jdoe:acme.example");
       expect(await registry.deletionOf(SPACE)).toBeNull();
     });

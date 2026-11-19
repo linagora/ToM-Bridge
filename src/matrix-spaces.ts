@@ -1,7 +1,7 @@
 import type { MatrixClient } from "@vector-im/matrix-bot-sdk";
 import type { Logger } from "matrix-appservice-bridge";
 
-import { MODERATOR_LEVEL, POSTER_LEVEL, type SpaceMatrix } from "./space-provisioner.js";
+import { generalName, MODERATOR_LEVEL, POSTER_LEVEL, type SpaceMatrix } from "./space-provisioner.js";
 
 const BRIDGE_LEVEL = 100;
 
@@ -129,7 +129,7 @@ export class MatrixSpaces implements SpaceMatrix {
     });
   }
 
-  async ensureGeneral(spaceId: string, spaceRoomId: string): Promise<string> {
+  async ensureGeneral(spaceId: string, spaceRoomId: string, spaceName: string): Promise<string> {
     const via = [
       this.#domain,
     ];
@@ -147,7 +147,7 @@ export class MatrixSpaces implements SpaceMatrix {
     const roomId =
       found ??
       (await this.#createRoom(`${this.#aliasName(spaceId)}-general`, {
-        name: "General",
+        name: generalName(spaceName),
         preset: "public_chat",
         initial_state: [
           {

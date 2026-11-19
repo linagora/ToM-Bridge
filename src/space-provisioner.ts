@@ -15,6 +15,10 @@ export const SYNC_REQUESTED = "twake.space.sync.requested";
 
 const PROVISIONED_NAMESPACE: string = uuidv5(PROVISIONED_TYPE, uuidv5.URL);
 
+export function generalName(spaceName: string): string {
+  return `${spaceName} - General`;
+}
+
 /** How long a deleted space's Matrix space is kept, without members, before it is purged. */
 export const RETENTION_MS: number = 30 * 24 * 60 * 60 * 1000;
 
@@ -41,7 +45,7 @@ export interface SpaceMatrix {
   createSpace(spaceId: string, name: string): Promise<string>;
   findGeneral(spaceId: string): Promise<string | null>;
   /** Finds or creates the space's General room, which its members only join, and makes sure the Matrix space lists it. */
-  ensureGeneral(spaceId: string, spaceRoomId: string): Promise<string>;
+  ensureGeneral(spaceId: string, spaceRoomId: string, spaceName: string): Promise<string>;
   ensureUser(matrixId: string, displayName: string): Promise<void>;
   join(roomId: string, matrixId: string): Promise<void>;
   /** Removes a member, doing nothing when they are not in the room. */
@@ -328,6 +332,11 @@ export function createSpaceEventHandler({
     }
   }
 
+  async function renameRooms([space, general]: string[], name: string) {
+    await matrix.rename(space!, name);
+    if (general) await matrix.rename(general, generalName(name));
+  }
+
   async function requireSpace(spaceId: string): Promise<string> {
     const roomId = await matrix.findSpace(spaceId);
     if (!roomId) {
@@ -355,7 +364,7 @@ export function createSpaceEventHandler({
 
   /**
    * Gives the space its Matrix space and members. A sync carries the whole
-   * space, so it also renames the Matrix space and removes who is not listed.
+   * space, so it also renames the Matrix space and its General room, and removes who is not listed.
    */
   async function provision(
     message: Record<string, unknown>,
@@ -367,14 +376,13 @@ export function createSpaceEventHandler({
     const name = requireString(message, "name");
     const found = await matrix.findSpace(spaceId);
     const roomId = found ?? (await matrix.createSpace(spaceId, name));
-    if (found && whole) {
-      await unlessStale(`${spaceId}/name`, timestamp, () => matrix.rename(roomId, name));
-    }
-
     const rooms = [
       roomId,
-      await matrix.ensureGeneral(spaceId, roomId),
+      await matrix.ensureGeneral(spaceId, roomId, name),
     ];
+    if (found && whole) {
+      await unlessStale(`${spaceId}/name`, timestamp, () => renameRooms(rooms, name));
+    }
 
     const members = named(membersOf(message));
     const levels = await addMembers(rooms, spaceId, members, timestamp);
@@ -417,8 +425,8 @@ export function createSpaceEventHandler({
     if (typeof name !== "string" || name === "") {
       return;
     }
-    const roomId = await requireSpace(spaceId);
-    await unlessStale(`${spaceId}/name`, timestamp, () => matrix.rename(roomId, name));
+    const rooms = await roomsOf(spaceId, await requireSpace(spaceId));
+    await unlessStale(`${spaceId}/name`, timestamp, () => renameRooms(rooms, name));
   }
 
   async function onMemberChanged(message: Record<string, unknown>, spaceId: string, timestamp: number) {
