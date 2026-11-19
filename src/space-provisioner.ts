@@ -40,8 +40,11 @@ export interface SpaceMatrix {
   /** Creates the space's Matrix space, or returns the one a concurrent delivery created. */
   createSpace(spaceId: string, name: string): Promise<string>;
   findGeneral(spaceId: string): Promise<string | null>;
-  /** Finds or creates the space's General room, which its members only join, and makes sure the Matrix space lists it. */
-  ensureGeneral(spaceId: string, spaceRoomId: string): Promise<string>;
+  /**
+   * Finds or creates the space's General room, named "<space name> - General", which its members only join, and makes
+   * sure the Matrix space lists it.
+   */
+  ensureGeneral(spaceId: string, spaceRoomId: string, spaceName: string): Promise<string>;
   ensureUser(matrixId: string, displayName: string): Promise<void>;
   join(roomId: string, matrixId: string): Promise<void>;
   /** Removes a member, doing nothing when they are not in the room. */
@@ -373,7 +376,7 @@ export function createSpaceEventHandler({
 
     const rooms = [
       roomId,
-      await matrix.ensureGeneral(spaceId, roomId),
+      await matrix.ensureGeneral(spaceId, roomId, name),
     ];
 
     const members = named(membersOf(message));

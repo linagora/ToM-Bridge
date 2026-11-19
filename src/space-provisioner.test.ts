@@ -236,7 +236,7 @@ describe("createSpaceEventHandler", () => {
       await handler()(created, properties("created"));
 
       expect(matrix.createSpace).toHaveBeenCalledWith(SPACE, "Design Sprint");
-      expect(matrix.ensureGeneral).toHaveBeenCalledWith(SPACE, ROOM);
+      expect(matrix.ensureGeneral).toHaveBeenCalledWith(SPACE, ROOM, "Design Sprint");
       expect(matrix.ensureUser).toHaveBeenCalledWith("@jdoe:acme.example", "John Doe");
       expect(matrix.ensureUser).toHaveBeenCalledWith("@vlee:acme.example", "vlee");
       expect(matrix.join.mock.calls).toEqual([
@@ -1102,7 +1102,7 @@ describe("createSpaceEventHandler", () => {
         properties("synced"),
       );
 
-      expect(matrix.ensureGeneral).toHaveBeenCalledWith(SPACE, ROOM);
+      expect(matrix.ensureGeneral).toHaveBeenCalledWith(SPACE, ROOM, "Design Sprint");
       expect(matrix.join).toHaveBeenCalledWith(ROOM, "@jdoe:acme.example");
       expect(await registry.deletionOf(SPACE)).toBeNull();
     });

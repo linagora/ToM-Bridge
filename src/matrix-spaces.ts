@@ -129,7 +129,7 @@ export class MatrixSpaces implements SpaceMatrix {
     });
   }
 
-  async ensureGeneral(spaceId: string, spaceRoomId: string): Promise<string> {
+  async ensureGeneral(spaceId: string, spaceRoomId: string, spaceName: string): Promise<string> {
     const via = [
       this.#domain,
     ];
@@ -147,7 +147,7 @@ export class MatrixSpaces implements SpaceMatrix {
     const roomId =
       found ??
       (await this.#createRoom(`${this.#aliasName(spaceId)}-general`, {
-        name: "General",
+        name: `${spaceName} - General`,
         preset: "public_chat",
         initial_state: [
           {

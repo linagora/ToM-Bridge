@@ -100,7 +100,7 @@ describe("MatrixSpaces", () => {
     client.resolveRoom.mockRejectedValue(matrixError(404, "M_NOT_FOUND"));
 
     await spaces.createSpace(SPACE, "Design Sprint");
-    await spaces.ensureGeneral(SPACE, ROOM);
+    await spaces.ensureGeneral(SPACE, ROOM, "Design Sprint");
 
     expect(client.createRoom).toHaveBeenCalledTimes(2);
     for (const [options] of client.createRoom.mock.calls) {
@@ -108,16 +108,16 @@ describe("MatrixSpaces", () => {
     }
   });
 
-  it("creates a public General room inside the space, out of the room directory", async () => {
+  it("creates a public General room named after the space, inside it and out of the room directory", async () => {
     client.resolveRoom.mockRejectedValue(matrixError(404, "M_NOT_FOUND"));
     client.createRoom.mockResolvedValue("!general:acme.example");
     client.getRoomStateEvent.mockRejectedValue(matrixError(404, "M_NOT_FOUND"));
 
-    expect(await spaces.ensureGeneral(SPACE, ROOM)).toBe("!general:acme.example");
+    expect(await spaces.ensureGeneral(SPACE, ROOM, "Design Sprint")).toBe("!general:acme.example");
 
     const [options] = client.createRoom.mock.calls[0]!;
     expect(options).toMatchObject({
-      name: "General",
+      name: "Design Sprint - General",
       room_alias_name: `twake-space-${SPACE}-general`,
       preset: "public_chat",
       visibility: "private",
@@ -159,7 +159,7 @@ describe("MatrixSpaces", () => {
       ],
     });
 
-    expect(await spaces.ensureGeneral(SPACE, ROOM)).toBe("!general:acme.example");
+    expect(await spaces.ensureGeneral(SPACE, ROOM, "Design Sprint")).toBe("!general:acme.example");
     expect(client.resolveRoom).toHaveBeenCalledWith(`#twake-space-${SPACE}-general:acme.example`);
     expect(client.createRoom).not.toHaveBeenCalled();
     expect(client.sendStateEvent).not.toHaveBeenCalled();
@@ -393,7 +393,7 @@ describe("MatrixSpaces", () => {
   it("lets viewers react, and editors add channels to the Matrix space only", async () => {
     await spaces.createSpace(SPACE, "Design Sprint");
     client.resolveRoom.mockRejectedValueOnce(matrixError(404, "M_NOT_FOUND"));
-    await spaces.ensureGeneral(SPACE, ROOM);
+    await spaces.ensureGeneral(SPACE, ROOM, "Design Sprint");
 
     const [space, general] = client.createRoom.mock.calls.map(([options]) => options);
     expect(space.power_level_content_override.events).toMatchObject({
@@ -450,7 +450,7 @@ describe("MatrixSpaces", () => {
     it("is created for the members of the Matrix space only", async () => {
       client.resolveRoom.mockRejectedValueOnce(matrixError(404, "M_NOT_FOUND"));
 
-      await spaces.ensureGeneral(SPACE, ROOM);
+      await spaces.ensureGeneral(SPACE, ROOM, "Design Sprint");
 
       const [options] = client.createRoom.mock.calls[0] ?? [];
       expect(options.initial_state).toContainEqual({
@@ -481,7 +481,7 @@ describe("MatrixSpaces", () => {
             },
       );
 
-      await spaces.ensureGeneral(SPACE, ROOM);
+      await spaces.ensureGeneral(SPACE, ROOM, "Design Sprint");
 
       expect(client.sendStateEvent).toHaveBeenCalledWith(GENERAL, "m.room.join_rules", "", restricted);
     });
@@ -498,7 +498,7 @@ describe("MatrixSpaces", () => {
             },
       );
 
-      await spaces.ensureGeneral(SPACE, ROOM);
+      await spaces.ensureGeneral(SPACE, ROOM, "Design Sprint");
 
       expect(client.sendStateEvent).not.toHaveBeenCalled();
     });
